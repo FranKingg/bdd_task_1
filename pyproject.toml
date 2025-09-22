@@ -1,7 +1,7 @@
 [project]
-name = "task-1"
+name = "Generador de Mapas"
 version = "0.1.0"
-description = "Add your description here"
+description = "Generador de mapas para dungeons de videojuegos 2D"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = []
