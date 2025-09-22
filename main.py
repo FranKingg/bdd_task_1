@@ -58,12 +58,16 @@ class Explorador:
         return False # Direccion no valida, no se mueve
 
     def explorar_habitacion(self) -> str:
-        contenido = self.mapa.habitaciones[self.posicion].contenido # Obtener el contenido de la habitación actual
-        
+
+        habitacion_actual = self.mapa.habitaciones[self.posicion]
+        habitacion_actual.visitada = True
+        contenido = habitacion_actual.contenido
+
         if contenido:
             return contenido.interactuar(self)
-
+    
         return "La habitación está vacía."
+
 
     def obtener_habitaciones_adyacentes(self) -> list[str]:
         actual = self.mapa.habitaciones[self.posicion] # Habitacion actual
@@ -110,7 +114,13 @@ class Tesoro(ContenidoHabitacion):
 
     def interactuar(self, explorador: Explorador) -> str:
         explorador.inventario.append(self.recompensa)
+        # dejar la habitación sin contenido
+        # (encuéntrala vía mapa y posición del explorador)
+        habitacion_actual = explorador.mapa.habitaciones[explorador.posicion]
+        habitacion_actual.contenido = None
+        
         return f"Recogiste el tesoro: {self.recompensa.nombre}. ¡Felicidades!"
+
 
 @dataclass
 class Monstruo(ContenidoHabitacion):
@@ -182,8 +192,15 @@ class Evento(ContenidoHabitacion):
     nombre_evento: str
     descripcion_evento: str
     efecto: str
+    @property
+    def descripcion(self) -> str:
+        return self.descripcion_evento
 
-    def interactuar(self, explorador = Explorador) -> str:
+    @property
+    def tipo(self) -> str:
+        return "evento"
+
+    def interactuar(self, explorador: Explorador) -> str:
         return f"Evento ocurrido: {self.descripcion_evento}"
     
 def num_ale_prob() -> int:
