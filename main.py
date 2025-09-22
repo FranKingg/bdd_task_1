@@ -3,6 +3,17 @@ from abc import ABC, abstractmethod
 from typing import Optional
 import random
 
+
+# Direcciones y opuestos
+DIRECCIONES = {
+    "norte": (0, -1),
+    "sur":   (0,  1),
+    "este":  (1,  0),
+    "oeste": (-1, 0),
+}
+
+OPUESTO = {"norte": "sur", "sur": "norte", "este": "oeste", "oeste": "este"}
+
 def main():
     print("Hello from task-1!")
 
@@ -19,18 +30,50 @@ class Habitacion:
 @dataclass
 class Mapa():
     ancho: int #
-    alto: int # dimensiones del mapa
+    alto: int # dimensiones del mapa 
     habitaciones: dict[tuple[int, int], Habitacion]  # (x,y) -> Habitacion
-    habitacion_inicial: Habitacion # donde empieza el explorador
+    habitacion_inicial: Optional[Habitacion] # donde empieza el explorador le ponemos optional para que pueda ser None y podamos resetear el mapa
 
     def generar_estructura(self, n_habitaciones: int):
-        pass
+        if n_habitaciones < 1 or n_habitaciones > self.ancho * self.alto:
+            return f"Error: número de habitaciones inválido. debe ser entre 1 y {self.ancho * self.alto}"
         
+        self.habitaciones.clear()
+        self.habitacion_inicial = None  # Reiniciar la habitacion inicial
+
+        # Generar la primera habitacion en una posicion random del borde del mapa
+
+        y_random = random.randint(0, self.alto) # para obtener la primera habitacion en una posicion random
+        x_random = 0
+
+        if y_random == 0: # si es 0, que no se salga del mapa
+            x_random = random.randint(0, self.ancho)
+        elif y_random == self.alto: # si es el maximo, que no se salga del mapa
+            x_random = random.randint(0, self.ancho)
+        else:
+            if random.randint(0,1) == 0: # si es 0, que no se salga del mapa
+                x_random = 0
+            else: # si es 1, que no se salga del mapa
+                x_random = self.ancho
+        
+        self.habitacion_inicial = Habitacion(
+            id=0,
+            x=x_random,
+            y=y_random,
+            contenido=None,
+            conexiones={},
+            visitada=False
+        )
+
+        self.habitaciones[(x_random, y_random)] = self.habitacion_inicial # añadir la primera habitacion al mapa
+
+
     def colocar_contenido(self):
         pass
 
 @dataclass
 class Objeto:
+
     nombre: str
     descripcion: str
     valor: int
@@ -149,7 +192,7 @@ class Monstruo(ContenidoHabitacion):
 
             if self.vida <= 0: # El monstruo ha muerto
                 return f"Has derrotado al monstruo: {self.nombre}. ¡Enhorabuena!"
-            
+            pass
             if not explorador.esta_vivo: # El explorador ha muerto
                 return "Has sido derrotado por el monstruo. Fin del juego."
             
