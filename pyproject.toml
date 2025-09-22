@@ -1,7 +1,9 @@
 [project]
-name = "Generador de Mapas"
+name = "generador_mapas"
 version = "0.1.0"
 description = "Generador de mapas para dungeons de videojuegos 2D"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "rich",
+]
