@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
 from typing import Optional
+from pathlib import Path
 import random
 
 
@@ -13,10 +14,6 @@ DIRECCIONES = {
 }
 
 OPUESTO = {"norte": "sur", "sur": "norte", "este": "oeste", "oeste": "este"}
-
-def main():
-    print("Hello from task-1!")
-
 
 @dataclass
 class Habitacion:
@@ -42,30 +39,71 @@ class Mapa():
         self.habitacion_inicial = None  # Reiniciar la habitacion inicial
 
         # Generar la primera habitacion en una posicion random del borde del mapa
-
-        y_random = random.randint(0, self.alto) # para obtener la primera habitacion en una posicion random
-        x_random = 0
-
-        if y_random == 0: # si es 0, que no se salga del mapa
-            x_random = random.randint(0, self.ancho)
-        elif y_random == self.alto: # si es el maximo, que no se salga del mapa
-            x_random = random.randint(0, self.ancho)
+        # Elegir un borde válido
+        lado = random.choice(("arriba", "abajo", "izquierda", "derecha")) # Elegir un lado del borde
+        if lado in ("arriba", "abajo"): 
+            x_random = random.randint(0, self.ancho - 1) # Elegir una posicion random en el borde
+            y_random = 0 if lado == "arriba" else self.alto - 1 # si es arriba y abajo
         else:
-            if random.randint(0,1) == 0: # si es 0, que no se salga del mapa
-                x_random = 0
-            else: # si es 1, que no se salga del mapa
-                x_random = self.ancho
+            y_random = random.randint(0, self.alto - 1) # Elegir una posicion random en el borde
+            x_random = 0 if lado == "izquierda" else self.ancho - 1 # si es izquierda o derecha
         
         self.habitacion_inicial = Habitacion(
-            id=0,
+            id=1,
             x=x_random,
             y=y_random,
             contenido=None,
             conexiones={},
             visitada=False
-        )
+        ) # crear la primera habitacion
 
         self.habitaciones[(x_random, y_random)] = self.habitacion_inicial # añadir la primera habitacion al mapa
+        cordenadas_habitacion_inicial = (x_random, y_random) # cursor para moverse por el mapa
+        siguiente_id = 2  # id para la siguiente habitacion
+        sin_progreso = 0 # contador para evitar atascos
+
+        while len(self.habitaciones) < n_habitaciones:
+            direccion = random.choice(list(DIRECCIONES.keys()))
+            dx, dy = DIRECCIONES[direccion]
+            nueva_x = cordenadas_habitacion_inicial[0] + dx
+            nueva_y = cordenadas_habitacion_inicial[1] + dy
+
+            if 0 <= nueva_x < self.ancho and 0 <= nueva_y < self.alto:
+                if (nueva_x, nueva_y) not in self.habitaciones:
+                    nueva_habitacion = Habitacion(
+                        id=siguiente_id,
+                        x=nueva_x,
+                        y=nueva_y,
+                        contenido=None,
+                        conexiones={},
+                        visitada=False
+                    )
+                    self.habitaciones[(nueva_x, nueva_y)] = nueva_habitacion
+                    siguiente_id += 1
+
+                    # Conectar ambas
+                    habitacion_actual = self.habitaciones[cordenadas_habitacion_inicial]
+                    habitacion_actual.conexiones[direccion] = nueva_habitacion
+                    nueva_habitacion.conexiones[OPUESTO[direccion]] = habitacion_actual
+
+                    sin_progreso = 0
+                else:
+                    sin_progreso += 1
+
+                #MOVER SIEMPRE EL CURSOR cuando la posición es válida (exista o no la habitación)
+                cordenadas_habitacion_inicial = (nueva_x, nueva_y)
+
+                #Anti-atasco por “muchos pasos sin crear”
+                if sin_progreso > 10:
+                    cordenadas_habitacion_inicial = random.choice(list(self.habitaciones.keys()))
+                    sin_progreso = 0
+
+            else:
+                # Posición inválida → saltar a otra habitación ya creada
+                cordenadas_habitacion_inicial = random.choice(list(self.habitaciones.keys()))
+                sin_progreso = 0
+
+        return "Estructura del mapa generada con éxito."
 
 
     def colocar_contenido(self):
@@ -73,6 +111,7 @@ class Mapa():
 
 @dataclass
 class Objeto:
+
 
     nombre: str
     descripcion: str
@@ -252,5 +291,26 @@ def num_ale_prob() -> int:
 def num_ale(min: int, max: int) -> int:
     return random.randint(min, max)
 
+def mostrar_mapa(mapa: Mapa):
+    print("Mapa generado:")
+    for y in range(mapa.alto):
+        for x in range(mapa.ancho):
+            if (x, y) in mapa.habitaciones:
+                if mapa.habitacion_inicial and (x, y) == (mapa.habitacion_inicial.x, mapa.habitacion_inicial.y):
+                    print("I", end=" ")  # I para habitación inicial
+                else:
+                    print("H", end=" ")  # H para habitación
+            else:
+                print(".", end=" ")  # Espacio vacío
+        print()  # salto de línea por fila
+
+def main():
+    print("Iniciando el generador de mapas...")
+    mapa = Mapa(ancho=10, alto=10, habitaciones={}, habitacion_inicial=None)
+    resultado = mapa.generar_estructura(n_habitaciones=40)
+    print(resultado)
+    mostrar_mapa(mapa)
+
+        
 if __name__ == "__main__":
     main()
