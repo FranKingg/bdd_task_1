@@ -1,316 +1,293 @@
-from dataclasses import dataclass
-from abc import ABC, abstractmethod
-from typing import Optional
-from pathlib import Path
-import random
+#!/usr/bin/env python3
+"""
+Dungeon Generator - Sistema de generación y exploración de dungeons
+"""
+
+from dungeon_generator import (
+    Mapa, Explorador, Visualizador,
+    guardar_partida, cargar_partida,
+    generar_reporte_exploracion
+)
+from rich.console import Console
+from rich.prompt import Prompt, IntPrompt, Confirm
+import sys
 
 
-# Direcciones y opuestos
-DIRECCIONES = {
-    "norte": (0, -1),
-    "sur":   (0,  1),
-    "este":  (1,  0),
-    "oeste": (-1, 0),
-}
+def menu_principal(console: Console):
+    """Muestra el menú principal y retorna la opción elegida."""
+    console.print("\n[bold cyan]═══════ MENÚ PRINCIPAL ═══════[/bold cyan]")
+    console.print("1. 🆕 Nueva partida")
+    console.print("2. 💾 Cargar partida")
+    console.print("3. 📖 Ver instrucciones")
+    console.print("4. 🚪 Salir")
+    console.print("[bold cyan]═══════════════════════════════[/bold cyan]")
+    
+    return Prompt.ask("Elige una opción", choices=["1", "2", "3", "4"], default="1")
 
-OPUESTO = {"norte": "sur", "sur": "norte", "este": "oeste", "oeste": "este"}
 
-@dataclass
-class Habitacion:
-    id: int # identificador unico
-    x: int # coordenadas en el mapa x
-    y: int # coordenadas en el mapa y
-    contenido: Optional["ContenidoHabitacion"] # Puede ser None
-    conexiones: dict[str, "Habitacion"]  # 'norte', 'sur', 'este', 'oeste' -> Habitacion
-    visitada: bool # si la ha visitado el explorador
+def mostrar_instrucciones(console: Console):
+    """Muestra las instrucciones del juego."""
+    instrucciones = """
+    [bold cyan]📖 INSTRUCCIONES[/bold cyan]
+    
+    [bold yellow]Objetivo:[/bold yellow]
+    Explora el dungeon, derrota enemigos, recolecta tesoros y vence al jefe final.
+    
+    [bold yellow]Comandos de movimiento:[/bold yellow]
+    • norte, sur, este, oeste - Moverse en una dirección
+    • n, s, e, o - Atajos para movimiento
+    
+    [bold yellow]Comandos de acción:[/bold yellow]
+    • explorar / ex - Interactuar con el contenido de la habitación
+    • mapa / m - Ver el mapa completo
+    • stats - Ver tus estadísticas
+    • inventario / inv - Ver tu inventario
+    • ayuda / help - Ver esta ayuda
+    • guardar - Guardar la partida actual
+    • salir / quit - Salir del juego
+    
+    [bold yellow]Tipos de contenido:[/bold yellow]
+    • 👾 Monstruos - Combate automático, pierdes vida
+    • 💎 Tesoros - Objetos valiosos para recolectar
+    • 👑 Jefe Final - Batalla épica final
+    • ❗ Eventos - Efectos especiales (trampas, curaciones, etc.)
+    
+    [bold yellow]Consejos:[/bold yellow]
+    • Explora cuidadosamente, los monstruos hacen daño
+    • Busca tesoros para aumentar tu puntuación
+    • El jefe final está en la habitación más lejana
+    • Puedes guardar tu progreso en cualquier momento
+    
+    [bold red]¡Buena suerte, aventurero![/bold red]
+    """
+    console.print(instrucciones)
+    Prompt.ask("\nPresiona Enter para continuar", default="")
 
-@dataclass
-class Mapa():
-    ancho: int #
-    alto: int # dimensiones del mapa 
-    habitaciones: dict[tuple[int, int], Habitacion]  # (x,y) -> Habitacion
-    habitacion_inicial: Optional[Habitacion] # donde empieza el explorador le ponemos optional para que pueda ser None y podamos resetear el mapa
 
-    def generar_estructura(self, n_habitaciones: int):
-        if n_habitaciones < 1 or n_habitaciones > self.ancho * self.alto:
-            return f"Error: número de habitaciones inválido. debe ser entre 1 y {self.ancho * self.alto}"
-        
-        self.habitaciones.clear()
-        self.habitacion_inicial = None  # Reiniciar la habitacion inicial
+def configurar_nueva_partida(console: Console) -> tuple[Mapa, Explorador]:
+    """Configura una nueva partida con los parámetros del usuario."""
+    console.print("\n[bold cyan]⚙️  CONFIGURACIÓN DE NUEVA PARTIDA[/bold cyan]\n")
+    
+    # Solicitar tamaño del mapa
+    ancho = IntPrompt.ask("Ancho del mapa", default=10)
+    alto = IntPrompt.ask("Alto del mapa", default=10)
+    
+    # Validar tamaño
+    if ancho < 3 or alto < 3:
+        console.print("[red]El mapa debe ser al menos 3x3[/red]")
+        ancho, alto = 10, 10
+    
+    if ancho > 20 or alto > 20:
+        console.print("[yellow]⚠️  Mapa muy grande, limitando a 20x20[/yellow]")
+        ancho = min(ancho, 20)
+        alto = min(alto, 20)
+    
+    # Solicitar número de habitaciones
+    max_habitaciones = ancho * alto
+    n_habitaciones = IntPrompt.ask(
+        f"Número de habitaciones (máximo {max_habitaciones})",
+        default=min(20, max_habitaciones // 2)
+    )
+    
+    if n_habitaciones < 5:
+        console.print("[yellow]Mínimo 5 habitaciones requeridas[/yellow]")
+        n_habitaciones = 5
+    
+    n_habitaciones = min(n_habitaciones, max_habitaciones)
+    
+    # Crear mapa
+    console.print("\n[cyan]🏗️  Generando dungeon...[/cyan]")
+    mapa = Mapa(ancho=ancho, alto=alto)
+    
+    resultado = mapa.generar_estructura(n_habitaciones)
+    console.print(f"[green]{resultado}[/green]")
+    
+    resultado_contenido = mapa.colocar_contenido()
+    console.print(f"[green]{resultado_contenido}[/green]")
+    
+    # Crear explorador
+    explorador = Explorador(mapa=mapa)
+    if mapa.habitacion_inicial is not None:
+        explorador.posicion = (mapa.habitacion_inicial.x, mapa.habitacion_inicial.y)
+        mapa.habitacion_inicial.visitada = True
+    else:
+        console.print("[red]Error: No se pudo inicializar la habitación inicial del mapa.[/red]")
+        sys.exit(1)
+    
+    console.print("\n[bold green]✅ ¡Dungeon creado exitosamente![/bold green]")
+    
+    # Mostrar estadísticas
+    stats = mapa.obtener_estadisticas_mapa()
+    console.print(f"\n[cyan]📊 Estadísticas:[/cyan]")
+    console.print(f"  • Habitaciones: {stats['total_habitaciones']}")
+    console.print(f"  • Monstruos: {stats['monstruos']}")
+    console.print(f"  • Tesoros: {stats['tesoros']}")
+    console.print(f"  • Jefes: {stats['jefes']}")
+    console.print(f"  • Eventos: {stats['eventos']}")
+    
+    Prompt.ask("\nPresiona Enter para comenzar", default="")
+    
+    return mapa, explorador
 
-        # Generar la primera habitacion en una posicion random del borde del mapa
-        # Elegir un borde válido
-        lado = random.choice(("arriba", "abajo", "izquierda", "derecha")) # Elegir un lado del borde
-        if lado in ("arriba", "abajo"): 
-            x_random = random.randint(0, self.ancho - 1) # Elegir una posicion random en el borde
-            y_random = 0 if lado == "arriba" else self.alto - 1 # si es arriba y abajo
+
+def procesar_comando(comando: str, explorador: Explorador, visualizador: Visualizador, console: Console) -> bool:
+    """
+    Procesa un comando del jugador.
+    Retorna True si el juego debe continuar, False si debe terminar.
+    """
+    comando = comando.lower().strip()
+    
+    # Comandos de movimiento
+    if comando in ['norte', 'n']:
+        if explorador.mover('norte'):
+            console.print("[green]Te mueves hacia el norte.[/green]")
+            visualizador.mostrar_habitacion_actual(explorador)
         else:
-            y_random = random.randint(0, self.alto - 1) # Elegir una posicion random en el borde
-            x_random = 0 if lado == "izquierda" else self.ancho - 1 # si es izquierda o derecha
-        
-        self.habitacion_inicial = Habitacion(
-            id=1,
-            x=x_random,
-            y=y_random,
-            contenido=None,
-            conexiones={},
-            visitada=False
-        ) # crear la primera habitacion
-
-        self.habitaciones[(x_random, y_random)] = self.habitacion_inicial # añadir la primera habitacion al mapa
-        cordenadas_habitacion_inicial = (x_random, y_random) # cursor para moverse por el mapa
-        siguiente_id = 2  # id para la siguiente habitacion
-        sin_progreso = 0 # contador para evitar atascos
-
-        while len(self.habitaciones) < n_habitaciones:
-            direccion = random.choice(list(DIRECCIONES.keys()))
-            dx, dy = DIRECCIONES[direccion]
-            nueva_x = cordenadas_habitacion_inicial[0] + dx
-            nueva_y = cordenadas_habitacion_inicial[1] + dy
-
-            if 0 <= nueva_x < self.ancho and 0 <= nueva_y < self.alto:
-                if (nueva_x, nueva_y) not in self.habitaciones:
-                    nueva_habitacion = Habitacion(
-                        id=siguiente_id,
-                        x=nueva_x,
-                        y=nueva_y,
-                        contenido=None,
-                        conexiones={},
-                        visitada=False
-                    )
-                    self.habitaciones[(nueva_x, nueva_y)] = nueva_habitacion
-                    siguiente_id += 1
-
-                    # Conectar ambas
-                    habitacion_actual = self.habitaciones[cordenadas_habitacion_inicial]
-                    habitacion_actual.conexiones[direccion] = nueva_habitacion
-                    nueva_habitacion.conexiones[OPUESTO[direccion]] = habitacion_actual
-
-                    sin_progreso = 0
-                else:
-                    sin_progreso += 1
-
-                #MOVER SIEMPRE EL CURSOR cuando la posición es válida (exista o no la habitación)
-                cordenadas_habitacion_inicial = (nueva_x, nueva_y)
-
-                #Anti-atasco por “muchos pasos sin crear”
-                if sin_progreso > 10:
-                    cordenadas_habitacion_inicial = random.choice(list(self.habitaciones.keys()))
-                    sin_progreso = 0
-
-            else:
-                # Posición inválida → saltar a otra habitación ya creada
-                cordenadas_habitacion_inicial = random.choice(list(self.habitaciones.keys()))
-                sin_progreso = 0
-
-        return "Estructura del mapa generada con éxito."
-
-
-    def colocar_contenido(self):
-        pass
-
-@dataclass
-class Objeto:
-
-
-    nombre: str
-    descripcion: str
-    valor: int
-
-@dataclass
-class Explorador:
-    vida: int
-    inventario: list[Objeto]
-    posicion: tuple[int, int]  # (x,y)
-    mapa: Mapa
-    dano: int
-
-    def mover(self, direccion: str) -> bool:
-
-        actual = self.mapa.habitaciones[self.posicion] # Habitacion actual
-
-        if direccion not in ['norte', 'sur', 'este', 'oeste']: #si la direccion no es valida
-            return False # Direccion no valida
-
-        if direccion in actual.conexiones: # Si la direccion es valida
-            nueva_habitacion = actual.conexiones[direccion] # Obtener la nueva habitacion
-            self.posicion = (nueva_habitacion.x, nueva_habitacion.y) # Actualizar la posicion
-            nueva_habitacion.visitada = True # Marcar la habitacion como visitada
-            return True # Movimiento exitoso
-        return False # Direccion no valida, no se mueve
-
-    def explorar_habitacion(self) -> str:
-
-        habitacion_actual = self.mapa.habitaciones[self.posicion]
-        habitacion_actual.visitada = True
-        contenido = habitacion_actual.contenido
-
-        if contenido:
-            return contenido.interactuar(self)
+            console.print("[red]No puedes ir en esa dirección.[/red]")
     
-        return "La habitación está vacía."
-
-
-    def obtener_habitaciones_adyacentes(self) -> list[str]:
-        actual = self.mapa.habitaciones[self.posicion] # Habitacion actual
-        return list(actual.conexiones.keys()) # Devuelve las direcciones de las habitaciones adyacentes
-
+    elif comando in ['sur', 's']:
+        if explorador.mover('sur'):
+            console.print("[green]Te mueves hacia el sur.[/green]")
+            visualizador.mostrar_habitacion_actual(explorador)
+        else:
+            console.print("[red]No puedes ir en esa dirección.[/red]")
     
-    def recibir_dano(self, cantidad: int):
-        self.vida -= cantidad
-        if self.vida < 0:
-            self.vida = 0
-
-    @property
-    def esta_vivo(self) -> bool:
-        if self.vida > 0:
-            return True
-        return False
-
-class ContenidoHabitacion(ABC):
-    @property
-    @abstractmethod
-    def descripcion(self) -> str:
-        pass
-
-    @property
-    @abstractmethod
-    def tipo(self) -> str:
-        pass
-
-    @abstractmethod
-    def interactuar(self, explorador: Explorador) -> str:
-        pass
-
-@dataclass
-class Tesoro(ContenidoHabitacion):
-    recompensa: Objeto
-
-    @property
-    def descripcion(self) -> str:
-        return f"Cofre con {self.recompensa.nombre}"
-
-    @property
-    def tipo(self) -> str:
-        return "Cofre del Tesoro"
-
-    def interactuar(self, explorador: Explorador) -> str:
-        explorador.inventario.append(self.recompensa)
-        # dejar la habitación sin contenido
-        # (encuéntrala vía mapa y posición del explorador)
-        habitacion_actual = explorador.mapa.habitaciones[explorador.posicion]
-        habitacion_actual.contenido = None
+    elif comando in ['este', 'e']:
+        if explorador.mover('este'):
+            console.print("[green]Te mueves hacia el este.[/green]")
+            visualizador.mostrar_habitacion_actual(explorador)
+        else:
+            console.print("[red]No puedes ir en esa dirección.[/red]")
+    
+    elif comando in ['oeste', 'o']:
+        if explorador.mover('oeste'):
+            console.print("[green]Te mueves hacia el oeste.[/green]")
+            visualizador.mostrar_habitacion_actual(explorador)
+        else:
+            console.print("[red]No puedes ir en esa dirección.[/red]")
+    
+    # Comandos de acción
+    elif comando in ['explorar', 'ex']:
+        resultado = explorador.explorar_habitacion()
+        console.print(f"\n{resultado}\n")
         
-        return f"Recogiste el tesoro: {self.recompensa.nombre}. ¡Felicidades!"
-
-
-@dataclass
-class Monstruo(ContenidoHabitacion):
-    nombre: str
-    vida: int
-    dano: int
-
-    @property
-    def descripcion(self) -> str:
-        return f"el nombre del monstruo es {self.nombre}, tiene {self.vida} puntos de vida y hace {self.dano} puntos de daño"
-
-    @property
-    def tipo(self) -> str:
-        return "Monstruo"
-
-    def interactuar(self, explorador: Explorador) -> str:
-
-        while self.vida > 0 and explorador.esta_vivo: # Mientras ambos estén vivos
-
-            prob = num_ale(0,1) # Probabilidad de 50% para cada uno
-
-            if prob == 0: 
-                self.vida -= explorador.dano # El explorador hace dano
-            elif prob == 1:
-                explorador.recibir_dano(self.dano)  # El monstruo hace daño
-
-            if self.vida <= 0: # El monstruo ha muerto
-                return f"Has derrotado al monstruo: {self.nombre}. ¡Enhorabuena!"
-            pass
-            if not explorador.esta_vivo: # El explorador ha muerto
-                return "Has sido derrotado por el monstruo. Fin del juego."
+        if not explorador.esta_vivo:
+            console.print("[bold red]💀 HAS MUERTO 💀[/bold red]")
+            console.print(generar_reporte_exploracion(explorador))
+            return False
+    
+    elif comando in ['mapa', 'm']:
+        visualizador.mostrar_mapa_completo(explorador)
+    
+    elif comando == 'stats':
+        visualizador.mostrar_estadisticas_explorador(explorador)
+    
+    elif comando in ['inventario', 'inv']:
+        if explorador.inventario:
+            console.print("\n[bold yellow]🎒 INVENTARIO:[/bold yellow]")
+            for i, obj in enumerate(explorador.inventario, 1):
+                console.print(f"  {i}. [cyan]{obj.nombre}[/cyan] - {obj.descripcion} ([yellow]{obj.valor} oro[/yellow])")
             
-        return "El combate ha terminado."
-
-@dataclass
-class Jefe(Monstruo):
-
-    recompensa_especial: Objeto
-
-    @property
-    def descripcion(self) -> str:
-        return f"Este jefe es {self.nombre}, tiene {self.vida} puntos de vida, hace {self.dano} puntos de daño y al derrotarlo obtendrás {self.recompensa_especial.nombre}"
-
-    @property
-    def tipo(self) -> str:
-        return "Jefe final"
-
-    def interactuar(self, explorador: Explorador) -> str:
-        
-        while self.vida > 0 and explorador.esta_vivo: # Mientras ambos estén vivos
-
-            prob = num_ale(0,5)
-
-            if prob <= 1: # El explorador hace dano
-                self.vida -= explorador.dano # El explorador hace dano
-            elif prob > 1: # El monstruo hace dano
-                explorador.recibir_dano(self.dano)  # El monstruo hace daño
-
-            if self.vida <= 0: # El jefe ha muerto
-                return f"Has derrotado al jefe: {self.nombre}. ¡Enhorabuena!"
-            if not explorador.esta_vivo: # El explorador ha muerto
-                return "Has sido derrotado por el monstruo. Fin del juego."
-        
-        return "El combate ha terminado."
-
-
-@dataclass
-class Evento(ContenidoHabitacion):
-    nombre_evento: str
-    descripcion_evento: str
-    efecto: str
-    @property
-    def descripcion(self) -> str:
-        return self.descripcion_evento
-
-    @property
-    def tipo(self) -> str:
-        return "evento"
-
-    def interactuar(self, explorador: Explorador) -> str:
-        return f"Evento ocurrido: {self.descripcion_evento}"
+            from dungeon_generator.utils import calcular_valor_total_inventario
+            total = calcular_valor_total_inventario(explorador)
+            console.print(f"\n[bold yellow]💰 Valor total: {total} oro[/bold yellow]")
+        else:
+            console.print("[dim]Tu inventario está vacío.[/dim]")
     
-def num_ale_prob() -> int:
-    return random.randint(0, 100)
+    elif comando in ['ayuda', 'help']:
+        mostrar_instrucciones(console)
+    
+    elif comando == 'guardar':
+        resultado = guardar_partida(explorador)
+        console.print(f"[green]{resultado}[/green]")
+    
+    elif comando in ['salir', 'quit']:
+        if Confirm.ask("¿Deseas guardar antes de salir?"):
+            guardar_partida(explorador)
+            console.print("[green]Partida guardada.[/green]")
+        console.print("[cyan]¡Hasta pronto, aventurero![/cyan]")
+        return False
+    
+    else:
+        console.print(f"[red]Comando desconocido: '{comando}'. Escribe 'ayuda' para ver los comandos.[/red]")
+    
+    return True
 
-def num_ale(min: int, max: int) -> int:
-    return random.randint(min, max)
 
-def mostrar_mapa(mapa: Mapa):
-    print("Mapa generado:")
-    for y in range(mapa.alto):
-        for x in range(mapa.ancho):
-            if (x, y) in mapa.habitaciones:
-                if mapa.habitacion_inicial and (x, y) == (mapa.habitacion_inicial.x, mapa.habitacion_inicial.y):
-                    print("I", end=" ")  # I para habitación inicial
-                else:
-                    print("H", end=" ")  # H para habitación
-            else:
-                print(".", end=" ")  # Espacio vacío
-        print()  # salto de línea por fila
+def bucle_juego(explorador: Explorador, visualizador: Visualizador, console: Console):
+    """Bucle principal del juego."""
+    visualizador.limpiar_pantalla()
+    visualizador.mostrar_titulo()
+    
+    console.print("\n[bold green]¡Bienvenido al dungeon![/bold green]")
+    console.print("[dim]Escribe 'ayuda' para ver los comandos disponibles.[/dim]\n")
+    
+    visualizador.mostrar_habitacion_actual(explorador)
+    visualizador.mostrar_estadisticas_explorador(explorador)
+    
+    while explorador.esta_vivo:
+        comando = Prompt.ask("\n[bold cyan]¿Qué deseas hacer?[/bold cyan]")
+        
+        if not procesar_comando(comando, explorador, visualizador, console):
+            break
+        
+        # Verificar victoria
+        hay_jefe = False
+        for hab in explorador.mapa.habitaciones.values():
+            if hab.contenido and hab.contenido.tipo == "Jefe Final":
+                hay_jefe = True
+                break
+        
+        if not hay_jefe and explorador.esta_vivo:
+            console.print("\n" + "=" * 60)
+            console.print("[bold yellow]🎉 ¡FELICIDADES! ¡HAS COMPLETADO EL DUNGEON! 🎉[/bold yellow]")
+            console.print("=" * 60)
+            console.print(generar_reporte_exploracion(explorador))
+            break
+
 
 def main():
-    print("Iniciando el generador de mapas...")
-    mapa = Mapa(ancho=10, alto=10, habitaciones={}, habitacion_inicial=None)
-    resultado = mapa.generar_estructura(n_habitaciones=40)
-    print(resultado)
-    mostrar_mapa(mapa)
-
+    """Función principal del juego."""
+    console = Console()
+    
+    while True:
+        opcion = menu_principal(console)
         
+        if opcion == "1":  # Nueva partida
+            mapa, explorador = configurar_nueva_partida(console)
+            visualizador = Visualizador(mapa)
+            bucle_juego(explorador, visualizador, console)
+        
+        elif opcion == "2":  # Cargar partida
+            console.print("\n[cyan]📂 Cargando partida...[/cyan]")
+            explorador = cargar_partida()
+            
+            if explorador:
+                console.print("[green]✅ Partida cargada exitosamente.[/green]")
+                visualizador = Visualizador(explorador.mapa)
+                bucle_juego(explorador, visualizador, console)
+            else:
+                console.print("[red]❌ No se encontró ninguna partida guardada.[/red]")
+                Prompt.ask("Presiona Enter para continuar", default="")
+        
+        elif opcion == "3":  # Instrucciones
+            mostrar_instrucciones(console)
+        
+        elif opcion == "4":  # Salir
+            console.print("\n[cyan]👋 ¡Gracias por jugar! ¡Hasta pronto![/cyan]")
+            sys.exit(0)
+
+
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        console = Console()
+        console.print("\n\n[yellow]⚠️  Juego interrumpido por el usuario.[/yellow]")
+        sys.exit(0)
+    except Exception as e:
+        console = Console()
+        console.print(f"\n[bold red]❌ Error inesperado: {e}[/bold red]")
+        import traceback
+        console.print(traceback.format_exc())
+        sys.exit(1)
